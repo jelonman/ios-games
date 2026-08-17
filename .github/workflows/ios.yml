@@ -116,6 +116,15 @@ jobs:
           if [ -d App.xcworkspace ]; then CONTAINER="-workspace App.xcworkspace";
           else CONTAINER="-project App.xcodeproj"; fi
           echo "building with: $CONTAINER"
+          # ⛔ CAPACITOR PINS "Apple Development" IN THE PROJECT FILE, and automatic signing then
+          # refuses any override: "App is automatically signed for development, but a conflicting
+          # code signing identity Apple Distribution has been manually specified." Passing the
+          # identity on the command line cannot win that argument — the pin has to go. With the
+          # identity left empty, automatic signing picks by ACTION, and `archive` means
+          # distribution, which is the profile a CI machine can actually be issued.
+          sed -i '' 's/CODE_SIGN_IDENTITY = "Apple Development";/CODE_SIGN_IDENTITY = "";/g' \
+            App.xcodeproj/project.pbxproj
+          grep -c 'CODE_SIGN_IDENTITY' App.xcodeproj/project.pbxproj
           xcodebuild $CONTAINER -scheme App \
             -configuration Release -destination 'generic/platform=iOS' \
             -archivePath "$PWD/build/App.xcarchive" \
@@ -125,7 +134,6 @@ jobs:
             -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             DEVELOPMENT_TEAM="$TEAM_ID" \
             CODE_SIGN_STYLE=Automatic \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
             archive
           # ⛔ WITHOUT CODE_SIGN_IDENTITY THE ARCHIVE ASKS FOR A *DEVELOPMENT* PROFILE. Capacitor
           # generates the project with "Apple Development" baked into the build settings, so
