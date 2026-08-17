@@ -113,8 +113,13 @@ jobs:
           # value is the AdMob APP id (ca-app-pub-XXXX~YYYY, tilde), NOT an ad unit id
           # (ca-app-pub-XXXX/YYYY, slash) — swapping them fails silently as permanent "no fill".
           # Google's public test app id is used until a real AdMob account exists.
-          APP_ID="${{ secrets.ADMOB_APP_ID }}"
-          if [ -z "$APP_ID" ]; then APP_ID="ca-app-pub-3940256099942544~1458002511"; fi
+          # One source of truth: each game's own ad-config.js carries its AdMob app id, so the
+          # id in Info.plist can never drift from the id the JavaScript requests ads with.
+          APP_ID=$(sed -n "s/.*AD_APP_ID *= *'\\(.*\\)'.*/\\1/p" ../../www/ad-config.js | head -1)
+          if [ -z "$APP_ID" ]; then
+            echo "no AD_APP_ID in ad-config.js — refusing to ship a build that would crash on launch"
+            exit 1
+          fi
           echo "using AdMob app id: $APP_ID"
           /usr/libexec/PlistBuddy -c "Delete :GADApplicationIdentifier" App/Info.plist || true
           /usr/libexec/PlistBuddy -c "Add :GADApplicationIdentifier string $APP_ID" App/Info.plist

@@ -1,15 +1,19 @@
-/* The one place an ad unit ID is written.
+/* The one place this game's AdMob ids are written. Created 2026-08-17 under
+ * petesarney@gmail.com, publisher pub-2675127458512931, payment country Sweden.
  *
- * ⛔ THESE ARE GOOGLE'S PUBLIC TEST UNITS. They serve a real rewarded video that pays nothing,
- * which is exactly what is wanted until a real AdMob account exists — serving live ads against
- * a unit you do not own, or clicking your own live ads, is what gets an AdMob account banned.
- * Confirmed from two sources on 2026-08-17: the plugin's own iOS source
- * (AdMobPlugin.swift, rewarded default) and https://developers.google.com/admob/ios/test-ads.
+ * ⛔ TWO DIFFERENT IDS THAT LOOK ALIKE:
+ *   AD_APP_ID   ca-app-pub-...~...  (TILDE) goes in Info.plist as GADApplicationIdentifier.
+ *               Without it the Google Mobile Ads SDK crashes the app on launch, on purpose.
+ *   AD_UNITS    ca-app-pub-.../...  (SLASH) is the rewarded placement the game requests.
+ * Swapping them does not error — it fails as permanent "no fill", which looks like bad luck.
  *
- * TO GO LIVE: replace `rewarded` with the real rewarded unit for each app, set TEST_MODE to
- * false, and put the AdMob APP id (the ca-app-pub-XXXX~YYYY form, with a tilde) into
- * GADApplicationIdentifier in the workflow's Info.plist step. Ad unit and app id are different
- * things and swapping them fails silently with "no fill" forever.
+ * ⛔ AD_TEST_MODE MUST BE false IN ANYTHING THAT SHIPS. With it true the SDK serves test ads,
+ * which pay nothing. It is only for local work. And never tap a live ad in your own app —
+ * self-clicks are what gets an AdMob account closed.
+ *
+ * No revenue arrives until the AdMob payment profile is completed — until then requests come
+ * back empty, the boost button simply never appears, and the games play exactly as they do now.
  */
-window.AD_UNITS = { rewarded: 'ca-app-pub-3940256099942544/1712485313' };
-window.AD_TEST_MODE = true;
+window.AD_APP_ID  = 'ca-app-pub-2675127458512931~8536783333';
+window.AD_UNITS   = { rewarded: 'ca-app-pub-2675127458512931/9528788030' };
+window.AD_TEST_MODE = false;
