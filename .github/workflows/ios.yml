@@ -108,7 +108,15 @@ jobs:
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
-          xcodebuild -workspace App.xcworkspace -scheme App \
+          # ⛔ Capacitor 8 uses Swift Package Manager, not CocoaPods, so `cap add ios` produces
+          # App.xcodeproj and NO App.xcworkspace. Every guide written for Capacitor 6 says
+          # -workspace, and xcodebuild's answer to that is "'App.xcworkspace' does not exist",
+          # which reads like the whole project failed to generate. Pick whichever is really here.
+          ls -la
+          if [ -d App.xcworkspace ]; then CONTAINER="-workspace App.xcworkspace";
+          else CONTAINER="-project App.xcodeproj"; fi
+          echo "building with: $CONTAINER"
+          xcodebuild $CONTAINER -scheme App \
             -configuration Release -destination 'generic/platform=iOS' \
             -archivePath "$PWD/build/App.xcarchive" \
             -allowProvisioningUpdates \
