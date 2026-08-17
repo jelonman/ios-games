@@ -122,25 +122,23 @@ jobs:
           # identity on the command line cannot win that argument — the pin has to go. With the
           # identity left empty, automatic signing picks by ACTION, and `archive` means
           # distribution, which is the profile a CI machine can actually be issued.
-          sed -i '' 's/CODE_SIGN_IDENTITY = "Apple Development";/CODE_SIGN_IDENTITY = "";/g' \
-            App.xcodeproj/project.pbxproj
-          grep -c 'CODE_SIGN_IDENTITY' App.xcodeproj/project.pbxproj
+          # ⛔ ARCHIVE UNSIGNED. THE SIGNING HAPPENS AT EXPORT. Xcode signs an archive with a
+          # DEVELOPMENT profile whatever you tell it — clearing Capacitor's pinned identity did
+          # not change that, and passing "Apple Distribution" is refused outright as a conflict
+          # with automatic signing. A development profile needs a registered device, and a hosted
+          # runner will never have one, so the archive step can never succeed while it is signing.
+          # The distribution identity is only chosen during -exportArchive, which is where
+          # -allowProvisioningUpdates can mint what it needs. So: build the bits here, sign there.
           xcodebuild $CONTAINER -scheme App \
             -configuration Release -destination 'generic/platform=iOS' \
             -archivePath "$PWD/build/App.xcarchive" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath ~/private_keys/AuthKey_${ASC_KEY_ID}.p8 \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             DEVELOPMENT_TEAM="$TEAM_ID" \
-            CODE_SIGN_STYLE=Automatic \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
             archive
-          # ⛔ WITHOUT CODE_SIGN_IDENTITY THE ARCHIVE ASKS FOR A *DEVELOPMENT* PROFILE. Capacitor
-          # generates the project with "Apple Development" baked into the build settings, so
-          # -allowProvisioningUpdates dutifully tries to mint a development profile and fails with
-          # "Your team has no devices from which to generate a provisioning profile" — on a CI box
-          # that will never have a device attached. The error names devices, so it reads like a
-          # hardware problem; it is a one-setting problem.
+          ls -la "$PWD/build/App.xcarchive/Products/Applications" || true
 
       - name: export ipa
         if: steps.gate.outputs.run == 'yes'
