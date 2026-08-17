@@ -47,6 +47,8 @@
   <button id="next" class="primary">Next level</button>
 </div>
 
+<script src="ad-config.js"></script>
+<script src="ads.js"></script>
 <script>
 // Untangle — game #3 of the Games Studio. The mechanic mobile ads promise constantly and
 // almost never ship: drag the dots until no lines cross. Pure geometry, no physics engine,
@@ -67,6 +69,8 @@ const $winTitle = document.getElementById('winTitle');
 
 let W = 0, H = 0, DPR = 1;
 let nodes = [], edges = [], level = 1, dragging = null, best = {};
+let solvedPos = [];      // the circle layout this board was scrambled FROM
+let levelStarted = 0;    // when the current board appeared, for the stuck check
 const R = 18;                       // node radius in CSS px (finger-sized)
 
 function resize() {
@@ -133,6 +137,7 @@ function build(n, extraChords) {
     y: pad + Math.random() * (H - pad * 2),
   }));
   edges = e;
+  solvedPos = solved;
 }
 
 // --- geometry -----------------------------------------------------------------
@@ -197,10 +202,60 @@ function win() {
   try { localStorage.setItem('untangle_level', String(level + 1)); } catch (e) {}
   $winTitle.textContent = level % 5 === 0 ? 'Nice run!' : 'Untangled!';
   $winText.textContent = level === 1
-    ? "That's the whole game. No timers, no lives, no 'watch an ad to continue'."
+    ? "That's the whole game. No timers, no lives, and nothing you have to watch to keep playing."
     : `Level ${level} clear — ${nodes.length} dots, ${edges.length} ropes.`;
   $win.style.display = 'flex';
 }
+
+// --- earned hint --------------------------------------------------------------
+// Move the dot involved in the most crossings to the position this board was scrambled from.
+// Never a lie and never a full solve: one dot per ad, and the board still needs work.
+//
+// ⛔ crossingList() returns pairs of EDGE indices, not nodes. Blaming the returned numbers
+// directly would score edges and then index nodes[] with them — wrong dot, silently.
+function placeWorstNode() {
+  const crossings = crossingList();
+  if (!crossings.length || !solvedPos.length) return;
+  const blame = new Map();
+  for (const [ei, ej] of crossings) {
+    for (const idx of [edges[ei][0], edges[ei][1], edges[ej][0], edges[ej][1]]) {
+      blame.set(idx, (blame.get(idx) || 0) + 1);
+    }
+  }
+  let worst = -1, worstN = -1;
+  for (const [idx, n] of blame) {
+    const sp = solvedPos[idx];
+    if (!sp) continue;
+    const dx = nodes[idx].x - sp.x, dy = nodes[idx].y - sp.y;
+    if (dx * dx + dy * dy < 400) continue;      // already home: hinting it would do nothing
+    if (n > worstN) { worstN = n; worst = idx; }
+  }
+  if (worst < 0) return;
+  nodes[worst].x = solvedPos[worst].x;
+  nodes[worst].y = solvedPos[worst].y;
+  draw();
+  check();
+}
+
+// ⛔ THE OFFER IS NOT PERMANENT FURNITURE. It appears only once someone has been on the same
+// board a while with crossings left — that is what "stuck" means here. Shuffle and Next level
+// stay free, one tap, unchanged.
+let _hintOffer = null;
+const STUCK_AFTER_MS = 40 * 1000;
+function offerHint() {
+  const stuck = Date.now() - levelStarted > STUCK_AFTER_MS && crossingList().length > 0;
+  if (!stuck || !(window.Boost && Boost.ready())) {
+    if (_hintOffer) { _hintOffer.destroy(); _hintOffer = null; }
+    return;
+  }
+  if (_hintOffer) return;
+  _hintOffer = Boost.mount({
+    host: document.querySelector('footer'),
+    label: 'Watch an ad: place a dot',
+    onReward: placeWorstNode
+  });
+}
+setInterval(offerHint, 4000);
 
 // --- input --------------------------------------------------------------------
 function pos(ev) {
@@ -250,7 +305,11 @@ function load(n) {
   while (crossingList().length === 0 && guard++ < 30) build(count, chords);
   draw();
   firstDraw = false;
+  levelStarted = Date.now();
+  if (_hintOffer) { _hintOffer.destroy(); _hintOffer = null; }
 }
+
+if (window.Boost) Boost.init({ adId: (window.AD_UNITS||{}).rewarded || '', isTesting: window.AD_TEST_MODE !== false });
 
 document.getElementById('again').onclick = () => load(level);
 document.getElementById('skip').onclick = () => load(level + 1);

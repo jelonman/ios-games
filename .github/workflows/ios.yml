@@ -20,6 +20,10 @@ on:
         description: 'upload to App Store Connect (false = build only)'
         required: false
         default: 'true'
+      version:
+        description: 'marketing version, e.g. 1.0 or 1.1'
+        required: false
+        default: '1.0'
 
 jobs:
   build:
@@ -88,7 +92,8 @@ jobs:
         working-directory: games/${{ matrix.game }}/ios/App
         run: |
           set -euo pipefail
-          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 1.0" App/Info.plist || true
+          VER="${{ github.event.inputs.version }}"; [ -z "$VER" ] && VER=1.0
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VER" App/Info.plist || true
           # the run number keeps every upload unique — App Store Connect refuses a repeat
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ github.run_number }}" App/Info.plist || true
           # portrait only: these are one-hand games and a rotated layout is a review rejection
@@ -103,6 +108,24 @@ jobs:
           # is removed rather than set — a leftover key on an iPhone-only app is the same trap
           # waiting for whoever turns iPad support on later.
           /usr/libexec/PlistBuddy -c "Delete :UISupportedInterfaceOrientations~ipad" App/Info.plist || true
+          # --- AdMob keys. Without GADApplicationIdentifier the Google Mobile Ads SDK
+          # deliberately CRASHES the app on launch, with a message naming the missing key. The
+          # value is the AdMob APP id (ca-app-pub-XXXX~YYYY, tilde), NOT an ad unit id
+          # (ca-app-pub-XXXX/YYYY, slash) — swapping them fails silently as permanent "no fill".
+          # Google's public test app id is used until a real AdMob account exists.
+          APP_ID="${{ secrets.ADMOB_APP_ID }}"
+          if [ -z "$APP_ID" ]; then APP_ID="ca-app-pub-3940256099942544~1458002511"; fi
+          echo "using AdMob app id: $APP_ID"
+          /usr/libexec/PlistBuddy -c "Delete :GADApplicationIdentifier" App/Info.plist || true
+          /usr/libexec/PlistBuddy -c "Add :GADApplicationIdentifier string $APP_ID" App/Info.plist
+          /usr/libexec/PlistBuddy -c "Delete :SKAdNetworkItems" App/Info.plist || true
+          /usr/libexec/PlistBuddy -c "Add :SKAdNetworkItems array" App/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :SKAdNetworkItems:0 dict" App/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :SKAdNetworkItems:0:SKAdNetworkIdentifier string cstr6suwn9.skadnetwork" App/Info.plist
+          # ⛔ NSUserTrackingUsageDescription is deliberately ABSENT. No App Tracking Transparency
+          # prompt is shown and ads are requested non-personalised (npa) — the prompt is itself
+          # the kind of interruption these games are meant not to have, and asking for tracking
+          # would change the App Privacy answers from "no data collected for tracking".
           /usr/libexec/PlistBuddy -c "Print" App/Info.plist | head -40
 
       - name: place the App Store Connect key

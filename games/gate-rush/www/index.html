@@ -32,6 +32,8 @@
 </div>
 <div id="overlay"><h2 id="oT"></h2><p id="oX"></p><button id="oB"></button></div>
 
+<script src="ad-config.js"></script>
+<script src="ads.js"></script>
 <script>
 // Gate Rush — game #3 of the Games Studio, and the genre the source video's own game sat in:
 // run forward, pass through ×/+ gates to grow your crowd, then hit the enemy wall. The ads
@@ -48,6 +50,7 @@ const $foot=document.getElementById('foot');
 
 let W=0,H=0,DPR=1,level=1,state='play';
 let crowd=1, laneX=0.5, scroll=0, gates=[], enemy=null, runners=[];
+let headStart = false;   // one rewarded run that begins with a crowd of 2
 let started=false;           // the runner waits for the player's first drag
 const SPEED=3.4;
 
@@ -123,7 +126,12 @@ function makeLevel(n){
   } while(!(best > enemy.n && one <= enemy.n) && guard++ < 120);
   gates = gs;
   window.__levelMath = {best, one, enemy: enemy.n};
-  crowd = 1; scroll = 0; laneX = 0.5; state='play'; started=false;
+  // A rewarded head start: begin the run with 2 instead of 1. Because every gate is
+  // multiplicative, that carries through the whole chain and forgives roughly one bad gate —
+  // the enemy is calibrated between a clean run and a one-mistake run, so this is a real
+  // second chance and still not a free win.
+  crowd = headStart ? 2 : 1; headStart = false;
+  scroll = 0; laneX = 0.5; state='play'; started=false;
   runners = [];
 }
 
@@ -171,6 +179,20 @@ function over(won, msg){
   $oB.textContent = won ? 'Next level' : 'Try again';
   $oB.onclick = () => load(won ? level+1 : level);
   $ov.style.display='flex';
+  if(!won) offerHeadStart();
+}
+
+// ⛔ ADDITIVE, AND ONLY AFTER A LOSS. "Try again" stays free and unchanged, and nothing is
+// offered on a win — being sold help right after succeeding is exactly the nagging to avoid.
+let _headOffer = null;
+function offerHeadStart(){
+  if(_headOffer){ _headOffer.destroy(); _headOffer = null; }
+  if(!(window.Boost && Boost.ready())) return;
+  _headOffer = Boost.mount({
+    host: $ov,
+    label: 'Watch an ad: start with double the crowd',
+    onReward: () => { headStart = true; load(level); }
+  });
 }
 
 function draw(){
@@ -237,6 +259,7 @@ resize();
 let _savedLevel = 1;
 try { _savedLevel = Math.max(1, parseInt(localStorage.getItem('gate_rush_level'), 10) || 1); } catch (e) {}
 load(_savedLevel); loop();
+if(window.Boost) Boost.init({ adId: (window.AD_UNITS||{}).rewarded || '', isTesting: window.AD_TEST_MODE !== false });
 /* ---- house ad -------------------------------------------------------------------
    This game is free and carries no payment path of its own. The daily-challenge trio
    does (live Stripe $3.99 unlock each), so the end-of-round overlay offers a route

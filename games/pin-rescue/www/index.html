@@ -44,6 +44,8 @@
   <button id="oBtn" class="primary"></button>
 </div>
 
+<script src="ad-config.js"></script>
+<script src="ads.js"></script>
 <script>
 // Pin Rescue — game #1 of the Games Studio, and the single most-faked mechanic in mobile
 // advertising: pull the pins in the right order so the treasure reaches the hero and the
@@ -59,6 +61,7 @@ const $oX = document.getElementById('oText'), $oB = document.getElementById('oBt
 
 let W=0,H=0,DPR=1,level=1,state='play',t=0;
 let pins=[], parts=[], hero=null, cup=null, solvedOrder=[];
+let guided=false;   // one attempt with the safe pin marked, earned by watching a rewarded ad
 
 function resize(){
   DPR=Math.min(devicePixelRatio||1,2);
@@ -115,6 +118,7 @@ function load(n){
   $lvl.textContent='Level '+n;
   $hint.textContent = n===1 ? 'tap the pin to pull it' : 'gold in the cup, lava away from it';
   $ov.style.display='none';
+  guided=false;
   resize(); makeLevel(n);
 }
 
@@ -177,7 +181,7 @@ function win(){
   try { localStorage.setItem('pin_rescue_level', String(level + 1)); } catch (e) {}
   $oT.textContent='Saved!'; $oT.style.color='#34d399';
   $oX.textContent = level===1
-    ? "That is the actual game from the ad. No timer, no lives, no 'watch a video to continue'."
+    ? "That is the actual game from the ad. No timer, no lives, and nothing you have to watch to keep playing."
     : `Level ${level} clear — ${cup.gold} gold in the cup, no lava.`;
   $oB.textContent='Next level'; $oB.onclick=()=>load(level+1);
   $ov.style.display='flex';
@@ -188,6 +192,21 @@ function lose(why){
   $oX.textContent = why + ' Try a different order.';
   $oB.textContent='Try again'; $oB.onclick=()=>load(level);
   $ov.style.display='flex';
+  offerGuide();
+}
+
+// ⛔ ADDITIVE ONLY. "Try again" above is still one tap and still free. This adds a second,
+// optional button that appears only when a rewarded ad is already loaded, and never on the
+// win screen — being offered help after succeeding is the nagging the owner asked to avoid.
+let _guideOffer = null;
+function offerGuide(){
+  if(_guideOffer){ _guideOffer.destroy(); _guideOffer = null; }
+  if(!(window.Boost && Boost.ready())) return;
+  _guideOffer = Boost.mount({
+    host: $ov,
+    label: 'Watch an ad: mark the safe pin',
+    onReward: () => { load(level); guided = true; }
+  });
 }
 
 // --- render -------------------------------------------------------------------
@@ -212,6 +231,21 @@ function draw(){
     ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,7);
     ctx.fillStyle = p.kind==='gold' ? '#f5c451' : '#ff6b4a';
     ctx.fill();
+  }
+
+  // The earned guide: ring the next pin that is safe to pull. solvedOrder is already the
+  // honest answer the level was built from, so this cannot mislead.
+  if(guided){
+    const nextSafe = solvedOrder.map(id=>pins[id]).find(p=>p && !p.pulled);
+    if(nextSafe){
+      ctx.save();
+      ctx.strokeStyle='#34d399'; ctx.lineWidth=3;
+      ctx.globalAlpha = 0.55 + 0.45*Math.sin(t*0.09);
+      ctx.beginPath();
+      ctx.ellipse(nextSafe.x, nextSafe.y, nextSafe.w/2+26, 26, 0, 0, 7);
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 
   // pins
@@ -248,6 +282,7 @@ resize();
 let _savedLevel = 1;
 try { _savedLevel = Math.max(1, parseInt(localStorage.getItem('pin_rescue_level'), 10) || 1); } catch (e) {}
 load(_savedLevel); loop();
+if(window.Boost) Boost.init({ adId: (window.AD_UNITS||{}).rewarded || '', isTesting: window.AD_TEST_MODE !== false });
 /* ---- house ad -------------------------------------------------------------------
    This game is free and carries no payment path of its own. The daily-challenge trio
    does (live Stripe $3.99 unlock each), so the end-of-round overlay offers a route
