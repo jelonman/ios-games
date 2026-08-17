@@ -65,12 +65,9 @@ jobs:
           SET="ios/App/App/Assets.xcassets/AppIcon.appiconset"
           ls "$SET"
           for f in "$SET"/*.png; do cp icon.png "$f"; done
-          python3 - <<'PY'
-from PIL import Image
-im = Image.open("icon.png")
-assert im.mode == "RGB" and im.size == (1024, 1024), (im.mode, im.size)
-print("icon ok:", im.size, im.mode)
-PY
+          # sips is preinstalled on macOS; python/PIL is not guaranteed on the runner
+          sips -g pixelWidth -g pixelHeight -g hasAlpha icon.png
+          test "$(sips -g hasAlpha icon.png | awk '/hasAlpha/{print $2}')" = "no"
 
       - name: set version and build number
         if: steps.gate.outputs.run == 'yes'
@@ -131,17 +128,21 @@ PY
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
-          cat > exportOptions.plist <<PLIST
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0"><dict>
-            <key>method</key><string>app-store-connect</string>
-            <key>teamID</key><string>${TEAM_ID}</string>
-            <key>uploadSymbols</key><true/>
-            <key>signingStyle</key><string>automatic</string>
-            <key>destination</key><string>export</string>
-          </dict></plist>
-          PLIST
+          # ⛔ NO HEREDOCS IN THIS FILE. A heredoc body has to sit at column 0 to be valid shell,
+          # and column 0 ends the YAML block scalar — the first version of this workflow would not
+          # parse at all, and GitHub reported it as "no workflow_dispatch trigger", which points
+          # at the wrong thing entirely. printf keeps the whole document inside the indented block.
+          printf '%s\n' \
+            '<?xml version="1.0" encoding="UTF-8"?>' \
+            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+            '<plist version="1.0"><dict>' \
+            '<key>method</key><string>app-store-connect</string>' \
+            "<key>teamID</key><string>${TEAM_ID}</string>" \
+            '<key>uploadSymbols</key><true/>' \
+            '<key>signingStyle</key><string>automatic</string>' \
+            '<key>destination</key><string>export</string>' \
+            '</dict></plist>' > exportOptions.plist
+          plutil -lint exportOptions.plist
           xcodebuild -exportArchive \
             -archivePath "$PWD/build/App.xcarchive" \
             -exportPath "$PWD/build/ipa" \
