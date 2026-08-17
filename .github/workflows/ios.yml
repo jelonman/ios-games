@@ -1,0 +1,175 @@
+name: build and upload iOS builds
+
+# ⛔ WHY THIS EXISTS. An .ipa can only be produced by Xcode, and Xcode only runs on macOS. The
+# box these games were written on is Linux, which is the entire reason three finished games sat
+# with Android builds and no iOS ones while the Apple membership ran down. A hosted macOS runner
+# is the only way to cross that line without buying a Mac.
+#
+# Signing is automatic (-allowProvisioningUpdates) using the App Store Connect key, so no
+# certificate or provisioning profile has to be exported from anywhere by hand. The same key
+# then does the upload.
+
+on:
+  workflow_dispatch:
+    inputs:
+      game:
+        description: 'one game, or "all"'
+        required: false
+        default: 'all'
+      upload:
+        description: 'upload to App Store Connect (false = build only)'
+        required: false
+        default: 'true'
+
+jobs:
+  build:
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        game: [untangle, gate-rush, pin-rescue]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: skip games not asked for
+        id: gate
+        run: |
+          want="${{ github.event.inputs.game }}"
+          if [ -z "$want" ] || [ "$want" = "all" ] || [ "$want" = "${{ matrix.game }}" ]; then
+            echo "run=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.gate.outputs.run == 'yes'
+        with:
+          node-version: '20'
+
+      - name: install capacitor and generate the iOS project
+        if: steps.gate.outputs.run == 'yes'
+        working-directory: games/${{ matrix.game }}
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npx cap add ios
+          npx cap sync ios
+
+      - name: app icon
+        if: steps.gate.outputs.run == 'yes'
+        working-directory: games/${{ matrix.game }}
+        run: |
+          set -euo pipefail
+          # Capacitor ships a placeholder icon set. Apple rejects an icon with an alpha channel,
+          # so the source PNG is already flattened to RGB before it gets here; this only places it.
+          SET="ios/App/App/Assets.xcassets/AppIcon.appiconset"
+          ls "$SET"
+          for f in "$SET"/*.png; do cp icon.png "$f"; done
+          python3 - <<'PY'
+from PIL import Image
+im = Image.open("icon.png")
+assert im.mode == "RGB" and im.size == (1024, 1024), (im.mode, im.size)
+print("icon ok:", im.size, im.mode)
+PY
+
+      - name: set version and build number
+        if: steps.gate.outputs.run == 'yes'
+        working-directory: games/${{ matrix.game }}/ios/App
+        run: |
+          set -euo pipefail
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 1.0" App/Info.plist || true
+          # the run number keeps every upload unique — App Store Connect refuses a repeat
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ github.run_number }}" App/Info.plist || true
+          # portrait only: these are one-hand games and a rotated layout is a review rejection
+          /usr/libexec/PlistBuddy -c "Delete :UISupportedInterfaceOrientations" App/Info.plist || true
+          /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations array" App/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations: string UIInterfaceOrientationPortrait" App/Info.plist
+          /usr/libexec/PlistBuddy -c "Delete :UISupportedInterfaceOrientations~ipad" App/Info.plist || true
+          /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations~ipad array" App/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations~ipad: string UIInterfaceOrientationPortrait" App/Info.plist
+          /usr/libexec/PlistBuddy -c "Print" App/Info.plist | head -40
+
+      - name: place the App Store Connect key
+        if: steps.gate.outputs.run == 'yes'
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/private_keys ~/.appstoreconnect/private_keys
+          printf '%s' "$ASC_KEY_P8" | base64 --decode > ~/private_keys/AuthKey_${ASC_KEY_ID}.p8
+          cp ~/private_keys/AuthKey_${ASC_KEY_ID}.p8 ~/.appstoreconnect/private_keys/
+          test -s ~/private_keys/AuthKey_${ASC_KEY_ID}.p8
+          head -c 30 ~/private_keys/AuthKey_${ASC_KEY_ID}.p8
+
+      - name: archive
+        if: steps.gate.outputs.run == 'yes'
+        working-directory: games/${{ matrix.game }}/ios/App
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          xcodebuild -workspace App.xcworkspace -scheme App \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -archivePath "$PWD/build/App.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/private_keys/AuthKey_${ASC_KEY_ID}.p8 \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CODE_SIGN_STYLE=Automatic \
+            archive
+
+      - name: export ipa
+        if: steps.gate.outputs.run == 'yes'
+        working-directory: games/${{ matrix.game }}/ios/App
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          cat > exportOptions.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>teamID</key><string>${TEAM_ID}</string>
+            <key>uploadSymbols</key><true/>
+            <key>signingStyle</key><string>automatic</string>
+            <key>destination</key><string>export</string>
+          </dict></plist>
+          PLIST
+          xcodebuild -exportArchive \
+            -archivePath "$PWD/build/App.xcarchive" \
+            -exportPath "$PWD/build/ipa" \
+            -exportOptionsPlist exportOptions.plist \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/private_keys/AuthKey_${ASC_KEY_ID}.p8 \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+          ls -la "$PWD/build/ipa"
+
+      - name: upload to App Store Connect
+        if: steps.gate.outputs.run == 'yes' && github.event.inputs.upload != 'false'
+        working-directory: games/${{ matrix.game }}/ios/App
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          IPA=$(ls build/ipa/*.ipa | head -1)
+          echo "uploading $IPA"
+          xcrun altool --upload-app -f "$IPA" -t ios \
+            --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID" 2>&1 | tee upload.log
+          grep -qi "No errors uploading" upload.log
+
+      - name: keep the ipa either way
+        if: steps.gate.outputs.run == 'yes'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ipa-${{ matrix.game }}
+          path: games/${{ matrix.game }}/ios/App/build/ipa/*.ipa
+          if-no-files-found: warn

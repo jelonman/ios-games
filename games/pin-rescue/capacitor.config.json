@@ -1,0 +1,7 @@
+{
+  "appId": "com.piotraiventures.pinrescue",
+  "appName": "Pin Rescue",
+  "webDir": "www",
+  "server": { "androidScheme": "https" },
+  "ios": { "contentInset": "always" }
+}

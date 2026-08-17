@@ -1,0 +1,7 @@
+{
+  "appId": "com.piotraiventures.gaterush",
+  "appName": "Gate Rush",
+  "webDir": "www",
+  "server": { "androidScheme": "https" },
+  "ios": { "contentInset": "always" }
+}
