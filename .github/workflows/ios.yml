@@ -23,7 +23,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-15
+    runs-on: macos-26
     strategy:
       fail-fast: false
       matrix:
@@ -40,6 +40,20 @@ jobs:
           else
             echo "run=no" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: pick the newest Xcode on the runner
+        if: steps.gate.outputs.run == 'yes'
+        run: |
+          set -euo pipefail
+          # ⛔ APPLE REFUSES ANY UPLOAD BUILT WITH AN OLD SDK: "This app was built with the iOS
+          # 18.5 SDK. All iOS and iPadOS apps must be built with the iOS 26 SDK or later." The
+          # runner's DEFAULT Xcode was 16.4, so a perfectly signed .ipa was rejected at the last
+          # step. Never rely on the image default; take the highest version present.
+          ls -d /Applications/Xcode*.app
+          NEWEST=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+          sudo xcode-select -s "$NEWEST/Contents/Developer"
+          xcodebuild -version
+          xcodebuild -showsdks | grep -i iphoneos
 
       - uses: actions/setup-node@v4
         if: steps.gate.outputs.run == 'yes'
