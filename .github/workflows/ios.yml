@@ -125,7 +125,14 @@ jobs:
             -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             DEVELOPMENT_TEAM="$TEAM_ID" \
             CODE_SIGN_STYLE=Automatic \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
             archive
+          # ⛔ WITHOUT CODE_SIGN_IDENTITY THE ARCHIVE ASKS FOR A *DEVELOPMENT* PROFILE. Capacitor
+          # generates the project with "Apple Development" baked into the build settings, so
+          # -allowProvisioningUpdates dutifully tries to mint a development profile and fails with
+          # "Your team has no devices from which to generate a provisioning profile" — on a CI box
+          # that will never have a device attached. The error names devices, so it reads like a
+          # hardware problem; it is a one-setting problem.
 
       - name: export ipa
         if: steps.gate.outputs.run == 'yes'
