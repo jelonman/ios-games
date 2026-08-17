@@ -81,9 +81,14 @@ jobs:
           /usr/libexec/PlistBuddy -c "Delete :UISupportedInterfaceOrientations" App/Info.plist || true
           /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations array" App/Info.plist
           /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations: string UIInterfaceOrientationPortrait" App/Info.plist
+          # ⛔ AN iPAD-PORTRAIT-ONLY UNIVERSAL APP IS REJECTED AT UPLOAD. Apple: "you need to
+          # include all of the Portrait, PortraitUpsideDown, LandscapeLeft, LandscapeRight
+          # orientations to support iPad multitasking." These are one-thumb portrait games, so
+          # rather than fake four iPad orientations they ship as iPhone-only
+          # (TARGETED_DEVICE_FAMILY=1 in the archive step). The ~ipad key then has no meaning and
+          # is removed rather than set — a leftover key on an iPhone-only app is the same trap
+          # waiting for whoever turns iPad support on later.
           /usr/libexec/PlistBuddy -c "Delete :UISupportedInterfaceOrientations~ipad" App/Info.plist || true
-          /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations~ipad array" App/Info.plist
-          /usr/libexec/PlistBuddy -c "Add :UISupportedInterfaceOrientations~ipad: string UIInterfaceOrientationPortrait" App/Info.plist
           /usr/libexec/PlistBuddy -c "Print" App/Info.plist | head -40
 
       - name: place the App Store Connect key
@@ -175,6 +180,7 @@ jobs:
             -configuration Release -destination 'generic/platform=iOS' \
             -archivePath "$PWD/build/App.xcarchive" \
             DEVELOPMENT_TEAM="$TEAM_ID" \
+            TARGETED_DEVICE_FAMILY=1 \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="iPhone Distribution" \
             PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID" \
